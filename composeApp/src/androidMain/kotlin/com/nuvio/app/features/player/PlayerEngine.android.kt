@@ -42,7 +42,6 @@ import org.jetbrains.compose.resources.getString
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.C
-import androidx.media3.common.Effect
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -57,7 +56,6 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.TransferListener
-import androidx.media3.effect.Brightness
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ForwardingRenderer
@@ -199,9 +197,35 @@ actual fun PlatformPlayerSurface(
     }
 }
 
-/** Maps the shared -50..50 brightness slider to Media3's additive -0.5..0.5 brightness effect. */
-private fun exoBrightnessEffects(value: Int): List<Effect> =
-    if (value == 0) emptyList() else listOf(Brightness(value.coerceIn(-50, 50) / 100f))
+/**
+ * Brightens (value > 0) or dims (value < 0) the video with a translucent white/black layer placed
+ * directly above the video surface and below subtitles. This deliberately avoids Media3's video
+ * effect pipeline: it works with every surface type, HDR, tunneling and the libass video effect.
+ * [value] is the shared -50..50 slider; 0 removes the layer.
+ */
+private fun PlayerView.applyBrightnessOverlay(value: Int) {
+    val frame = findViewById<android.view.ViewGroup>(androidx.media3.ui.R.id.exo_content_frame) ?: return
+    var overlay = frame.findViewById<android.view.View>(R.id.video_brightness_overlay)
+    if (value == 0) {
+        overlay?.visibility = android.view.View.GONE
+        return
+    }
+    if (overlay == null) {
+        overlay = android.view.View(context).apply {
+            id = R.id.video_brightness_overlay
+            isClickable = false
+            isFocusable = false
+            layoutParams = android.view.ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT)
+        }
+        val surfaceIndex = videoSurfaceView?.let(frame::indexOfChild) ?: -1
+        // Right above the video surface so the shutter and subtitles still draw over it.
+        frame.addView(overlay, if (surfaceIndex >= 0) surfaceIndex + 1 else frame.childCount)
+    }
+    val strength = value.coerceIn(-50, 50) / 50f
+    overlay.setBackgroundColor(if (strength > 0f) android.graphics.Color.WHITE else android.graphics.Color.BLACK)
+    overlay.alpha = kotlin.math.abs(strength) * if (strength > 0f) 0.35f else 0.6f
+    overlay.visibility = android.view.View.VISIBLE
+}
 
 private enum class ResolvedAndroidPlaybackEngine {
     ExoPlayer,
@@ -382,18 +406,6 @@ private fun ExoPlayerSurface(
         }
     }
 
-    // Brightness shares ExoPlayer's single video-effects slot with the libass video-effect
-    // renderer, so always set both together or one would silently drop the other.
-    fun applyExoVideoEffects(player: ExoPlayer, brightness: Int) {
-        val effectiveRenderMode = if (playerSettings.tunnelingEnabled) "OVERLAY" else libassRenderMode
-        val assEffect: Effect? = if (useLibass && videoEffectsNeeded && effectiveRenderMode != "OVERLAY") {
-            player.getAssHandlerCompat()?.let { com.nuvio.tv.libass.media.effect.AssVideoEffectAsync(it) }
-        } else {
-            null
-        }
-        player.setVideoEffects(listOfNotNull(assEffect) + exoBrightnessEffects(brightness))
-    }
-
     val exoPlayer = remember(
         sourceUrl,
         sourceAudioUrl,
@@ -533,9 +545,6 @@ private fun ExoPlayerSurface(
             hasActiveSubtitle = false,
             useCustomSubtitles = false,
         )
-        PlayerSettingsRepository.uiState.value.iosBrightness.takeIf { it != 0 }?.let { brightness ->
-            applyExoVideoEffects(player, brightness)
-        }
         player
     }
 
@@ -913,15 +922,8 @@ private fun ExoPlayerSurface(
 
                 override val supportsVideoBrightness = true
 
-                // Every effects change reconfigures Media3's video graph, so coalesce slider drags.
-                private val brightnessHandler = android.os.Handler(android.os.Looper.getMainLooper())
-
                 override fun applyVideoBrightness(value: Int) {
-                    brightnessHandler.removeCallbacksAndMessages(null)
-                    brightnessHandler.postDelayed({
-                        runCatching { applyExoVideoEffects(exoPlayer, value) }
-                            .onFailure { Log.w(TAG, "Failed to apply video brightness", it) }
-                    }, 150L)
+                    playerViewRef?.applyBrightnessOverlay(value)
                 }
 
                 private val audioTrackCache = AudioTrackCache()
@@ -1184,6 +1186,7 @@ private fun ExoPlayerSurface(
                     this.resizeMode = resizeMode.toExoResizeMode()
                     setShutterBackgroundColor(android.graphics.Color.BLACK)
                     playerViewRef = this
+                    applyBrightnessOverlay(PlayerSettingsRepository.uiState.value.iosBrightness)
                     sidecarController.bindSubtitleView(this.subtitleView)
                     subtitleView?.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
                         val inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
@@ -1210,6 +1213,7 @@ private fun ExoPlayerSurface(
                 playerView.useController = useNativeController
                 playerView.resizeMode = resizeMode.toExoResizeMode()
                 playerViewRef = playerView
+                playerView.applyBrightnessOverlay(PlayerSettingsRepository.uiState.value.iosBrightness)
                 sidecarController.bindSubtitleView(playerView.subtitleView)
                 syncPlayerViewKeepScreenOn()
                 playerView.syncLibassOverlay(
