@@ -1,6 +1,8 @@
 package com.nuvio.app.features.player
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 
 import android.app.Activity
@@ -19,6 +21,7 @@ import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.util.AttributeSet
 import android.view.SurfaceHolder
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.Composable
@@ -29,7 +32,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
@@ -195,36 +200,6 @@ actual fun PlatformPlayerSurface(
             )
         }
     }
-}
-
-/**
- * Brightens (value > 0) or dims (value < 0) the video with a translucent white/black layer placed
- * directly above the video surface and below subtitles. This deliberately avoids Media3's video
- * effect pipeline: it works with every surface type, HDR, tunneling and the libass video effect.
- * [value] is the shared -50..50 slider; 0 removes the layer.
- */
-private fun PlayerView.applyBrightnessOverlay(value: Int) {
-    val frame = findViewById<android.view.ViewGroup>(androidx.media3.ui.R.id.exo_content_frame) ?: return
-    var overlay = frame.findViewById<android.view.View>(R.id.video_brightness_overlay)
-    if (value == 0) {
-        overlay?.visibility = android.view.View.GONE
-        return
-    }
-    if (overlay == null) {
-        overlay = android.view.View(context).apply {
-            id = R.id.video_brightness_overlay
-            isClickable = false
-            isFocusable = false
-            layoutParams = android.view.ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-        }
-        val surfaceIndex = videoSurfaceView?.let(frame::indexOfChild) ?: -1
-        // Right above the video surface so the shutter and subtitles still draw over it.
-        frame.addView(overlay, if (surfaceIndex >= 0) surfaceIndex + 1 else frame.childCount)
-    }
-    val strength = value.coerceIn(-50, 50) / 50f
-    overlay.setBackgroundColor(if (strength > 0f) android.graphics.Color.WHITE else android.graphics.Color.BLACK)
-    overlay.alpha = kotlin.math.abs(strength) * if (strength > 0f) 0.35f else 0.6f
-    overlay.visibility = android.view.View.VISIBLE
 }
 
 private enum class ResolvedAndroidPlaybackEngine {
@@ -922,10 +897,8 @@ private fun ExoPlayerSurface(
 
                 override val supportsVideoBrightness = true
 
-                override fun applyVideoBrightness(value: Int) {
-                    playerViewRef?.applyBrightnessOverlay(value)
-                }
-
+                // Brightness is drawn by a Compose layer in ExoPlayerSurface that observes the
+                // setting directly, so there is nothing to push into the player here.
                 private val audioTrackCache = AudioTrackCache()
 
                 override fun play() {
@@ -1186,7 +1159,6 @@ private fun ExoPlayerSurface(
                     this.resizeMode = resizeMode.toExoResizeMode()
                     setShutterBackgroundColor(android.graphics.Color.BLACK)
                     playerViewRef = this
-                    applyBrightnessOverlay(PlayerSettingsRepository.uiState.value.iosBrightness)
                     sidecarController.bindSubtitleView(this.subtitleView)
                     subtitleView?.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
                         val inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
@@ -1213,7 +1185,6 @@ private fun ExoPlayerSurface(
                 playerView.useController = useNativeController
                 playerView.resizeMode = resizeMode.toExoResizeMode()
                 playerViewRef = playerView
-                playerView.applyBrightnessOverlay(PlayerSettingsRepository.uiState.value.iosBrightness)
                 sidecarController.bindSubtitleView(playerView.subtitleView)
                 syncPlayerViewKeepScreenOn()
                 playerView.syncLibassOverlay(
@@ -1227,7 +1198,39 @@ private fun ExoPlayerSurface(
                 }
             },
         )
+        VideoBrightnessLayer(
+            value = PlayerSettingsRepository.uiState.collectAsState().value.iosBrightness,
+            videoAspectRatio = videoAspectRatio,
+            fitsInsideBounds = resizeMode == PlayerResizeMode.Fit,
+        )
         StyledSubtitleOverlay(subtitlePresenter.text, currentSubtitleStyle)
+    }
+}
+
+/**
+ * Brightens (value > 0) or dims (value < 0) ExoPlayer video with a translucent white/black layer
+ * over the video and under subtitles and controls. Media3's effect pipeline is deliberately not
+ * used: this works the same for SDR, HDR/Dolby Vision, tunneling and every surface type.
+ * [value] is the shared -50..50 slider; 0 draws nothing.
+ */
+@Composable
+private fun VideoBrightnessLayer(
+    value: Int,
+    videoAspectRatio: Float,
+    fitsInsideBounds: Boolean,
+) {
+    if (value == 0) return
+    val strength = value.coerceIn(-50, 50) / 50f
+    val tint = if (strength > 0f) Color.White else Color.Black
+    val alpha = kotlin.math.abs(strength) * if (strength > 0f) 0.35f else 0.6f
+    // In Fit mode keep the tint on the picture only, not on the letterbox bars.
+    val boundsModifier = if (fitsInsideBounds && videoAspectRatio > 0f) {
+        Modifier.aspectRatio(videoAspectRatio)
+    } else {
+        Modifier.fillMaxSize()
+    }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(boundsModifier.background(tint.copy(alpha = alpha)))
     }
 }
 
