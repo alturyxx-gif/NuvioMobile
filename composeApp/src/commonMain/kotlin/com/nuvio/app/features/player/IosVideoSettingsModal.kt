@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.ui.Slider
+import com.nuvio.app.isIos
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.player_video_settings_brightness
@@ -87,57 +88,59 @@ internal fun IosVideoSettingsModal(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                OptionGroup(
-                    title = stringResource(Res.string.player_video_settings_output_preset),
-                    options = IosVideoOutputPreset.entries,
-                    selected = settings.iosVideoOutputPreset,
-                    label = { it.localizedLabel() },
-                    description = { it.localizedDescription() },
-                    onSelect = {
-                        PlayerSettingsRepository.setIosVideoOutputPreset(it)
-                        onSettingsChanged()
-                    },
-                )
+                if (isIos) {
+                    OptionGroup(
+                        title = stringResource(Res.string.player_video_settings_output_preset),
+                        options = IosVideoOutputPreset.entries,
+                        selected = settings.iosVideoOutputPreset,
+                        label = { it.localizedLabel() },
+                        description = { it.localizedDescription() },
+                        onSelect = {
+                            PlayerSettingsRepository.setIosVideoOutputPreset(it)
+                            onSettingsChanged()
+                        },
+                    )
 
-                ToggleRow(
-                    title = stringResource(Res.string.player_video_settings_hdr_peak_detection),
-                    description = stringResource(Res.string.player_video_settings_hdr_peak_detection_desc),
-                    checked = settings.iosHdrComputePeakEnabled,
-                    onCheckedChange = {
-                        PlayerSettingsRepository.setIosHdrComputePeakEnabled(it)
-                        onSettingsChanged()
-                    },
-                )
+                    ToggleRow(
+                        title = stringResource(Res.string.player_video_settings_hdr_peak_detection),
+                        description = stringResource(Res.string.player_video_settings_hdr_peak_detection_desc),
+                        checked = settings.iosHdrComputePeakEnabled,
+                        onCheckedChange = {
+                            PlayerSettingsRepository.setIosHdrComputePeakEnabled(it)
+                            onSettingsChanged()
+                        },
+                    )
 
-                OptionGroup(
-                    title = stringResource(Res.string.player_video_settings_tone_mapping),
-                    options = IosToneMappingMode.entries,
-                    selected = settings.iosToneMappingMode,
-                    label = { it.label },
-                    onSelect = {
-                        PlayerSettingsRepository.setIosToneMappingMode(it)
-                        onSettingsChanged()
-                    },
-                )
+                    OptionGroup(
+                        title = stringResource(Res.string.player_video_settings_tone_mapping),
+                        options = IosToneMappingMode.entries,
+                        selected = settings.iosToneMappingMode,
+                        label = { it.label },
+                        onSelect = {
+                            PlayerSettingsRepository.setIosToneMappingMode(it)
+                            onSettingsChanged()
+                        },
+                    )
 
-                ToggleRow(
-                    title = stringResource(Res.string.player_video_settings_deband),
-                    description = stringResource(Res.string.player_video_settings_deband_desc),
-                    checked = settings.iosDebandEnabled,
-                    onCheckedChange = {
-                        PlayerSettingsRepository.setIosDebandEnabled(it)
-                        onSettingsChanged()
-                    },
-                )
-                ToggleRow(
-                    title = stringResource(Res.string.player_video_settings_interpolation),
-                    description = stringResource(Res.string.player_video_settings_interpolation_desc),
-                    checked = settings.iosInterpolationEnabled,
-                    onCheckedChange = {
-                        PlayerSettingsRepository.setIosInterpolationEnabled(it)
-                        onSettingsChanged()
-                    },
-                )
+                    ToggleRow(
+                        title = stringResource(Res.string.player_video_settings_deband),
+                        description = stringResource(Res.string.player_video_settings_deband_desc),
+                        checked = settings.iosDebandEnabled,
+                        onCheckedChange = {
+                            PlayerSettingsRepository.setIosDebandEnabled(it)
+                            onSettingsChanged()
+                        },
+                    )
+                    ToggleRow(
+                        title = stringResource(Res.string.player_video_settings_interpolation),
+                        description = stringResource(Res.string.player_video_settings_interpolation_desc),
+                        checked = settings.iosInterpolationEnabled,
+                        onCheckedChange = {
+                            PlayerSettingsRepository.setIosInterpolationEnabled(it)
+                            onSettingsChanged()
+                        },
+                    )
+                }
 
                 PictureSlider(
                     title = stringResource(Res.string.player_video_settings_brightness),
@@ -147,30 +150,32 @@ internal fun IosVideoSettingsModal(
                         onSettingsChanged()
                     },
                 )
-                PictureSlider(
-                    title = stringResource(Res.string.player_video_settings_contrast),
-                    value = settings.iosContrast,
-                    onValueChanged = {
-                        PlayerSettingsRepository.setIosContrast(it)
-                        onSettingsChanged()
-                    },
-                )
-                PictureSlider(
-                    title = stringResource(Res.string.player_video_settings_saturation),
-                    value = settings.iosSaturation,
-                    onValueChanged = {
-                        PlayerSettingsRepository.setIosSaturation(it)
-                        onSettingsChanged()
-                    },
-                )
-                PictureSlider(
-                    title = stringResource(Res.string.player_video_settings_gamma),
-                    value = settings.iosGamma,
-                    onValueChanged = {
-                        PlayerSettingsRepository.setIosGamma(it)
-                        onSettingsChanged()
-                    },
-                )
+                if (isIos) {
+                    PictureSlider(
+                        title = stringResource(Res.string.player_video_settings_contrast),
+                        value = settings.iosContrast,
+                        onValueChanged = {
+                            PlayerSettingsRepository.setIosContrast(it)
+                            onSettingsChanged()
+                        },
+                    )
+                    PictureSlider(
+                        title = stringResource(Res.string.player_video_settings_saturation),
+                        value = settings.iosSaturation,
+                        onValueChanged = {
+                            PlayerSettingsRepository.setIosSaturation(it)
+                            onSettingsChanged()
+                        },
+                    )
+                    PictureSlider(
+                        title = stringResource(Res.string.player_video_settings_gamma),
+                        value = settings.iosGamma,
+                        onValueChanged = {
+                            PlayerSettingsRepository.setIosGamma(it)
+                            onSettingsChanged()
+                        },
+                    )
+                }
             }
         }
     }

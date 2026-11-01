@@ -42,6 +42,7 @@ import org.jetbrains.compose.resources.getString
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.C
+import androidx.media3.common.Effect
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -56,6 +57,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.TransferListener
+import androidx.media3.effect.Brightness
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ForwardingRenderer
@@ -196,6 +198,10 @@ actual fun PlatformPlayerSurface(
         }
     }
 }
+
+/** Maps the shared -50..50 brightness slider to Media3's additive -0.5..0.5 brightness effect. */
+private fun exoBrightnessEffects(value: Int): List<Effect> =
+    if (value == 0) emptyList() else listOf(Brightness(value.coerceIn(-50, 50) / 100f))
 
 private enum class ResolvedAndroidPlaybackEngine {
     ExoPlayer,
@@ -376,6 +382,18 @@ private fun ExoPlayerSurface(
         }
     }
 
+    // Brightness shares ExoPlayer's single video-effects slot with the libass video-effect
+    // renderer, so always set both together or one would silently drop the other.
+    fun applyExoVideoEffects(player: ExoPlayer, brightness: Int) {
+        val effectiveRenderMode = if (playerSettings.tunnelingEnabled) "OVERLAY" else libassRenderMode
+        val assEffect: Effect? = if (useLibass && videoEffectsNeeded && effectiveRenderMode != "OVERLAY") {
+            player.getAssHandlerCompat()?.let { com.nuvio.tv.libass.media.effect.AssVideoEffectAsync(it) }
+        } else {
+            null
+        }
+        player.setVideoEffects(listOfNotNull(assEffect) + exoBrightnessEffects(brightness))
+    }
+
     val exoPlayer = remember(
         sourceUrl,
         sourceAudioUrl,
@@ -515,6 +533,9 @@ private fun ExoPlayerSurface(
             hasActiveSubtitle = false,
             useCustomSubtitles = false,
         )
+        PlayerSettingsRepository.uiState.value.iosBrightness.takeIf { it != 0 }?.let { brightness ->
+            applyExoVideoEffects(player, brightness)
+        }
         player
     }
 
@@ -889,6 +910,19 @@ private fun ExoPlayerSurface(
         onControllerReady(
             autoSyncCoordinator.wrap(object : PlayerEngineController { // AutoSync hook
                 override val playbackEngine = AndroidPlaybackEngine.ExoPlayer
+
+                override val supportsVideoBrightness = true
+
+                // Every effects change reconfigures Media3's video graph, so coalesce slider drags.
+                private val brightnessHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+                override fun applyVideoBrightness(value: Int) {
+                    brightnessHandler.removeCallbacksAndMessages(null)
+                    brightnessHandler.postDelayed({
+                        runCatching { applyExoVideoEffects(exoPlayer, value) }
+                            .onFailure { Log.w(TAG, "Failed to apply video brightness", it) }
+                    }, 150L)
+                }
 
                 private val audioTrackCache = AudioTrackCache()
 
@@ -1458,6 +1492,10 @@ private fun LibmpvPlayerSurface(
         playerViewRef?.applyResizeMode(resizeMode)
     }
 
+    LaunchedEffect(playerViewRef) {
+        playerViewRef?.applyVideoBrightness(PlayerSettingsRepository.uiState.value.iosBrightness)
+    }
+
     LaunchedEffect(playerViewRef, sourceUrl, sourceAudioUrl, sanitizedSourceHeaders, externalSubtitles) {
         val view = playerViewRef ?: return@LaunchedEffect
         onControllerReady(
@@ -1757,6 +1795,11 @@ private class NuvioLibmpvView(
         )
     }
 
+    /** Slider is -50..50; mpv's `brightness` is -100..100, so double it to use the full range. */
+    fun applyVideoBrightness(value: Int) {
+        executeMpv { mpv.setPropertyInt("brightness", (value * 2).coerceIn(-100, 100)) }
+    }
+
     fun applyResizeMode(resizeMode: PlayerResizeMode) {
         executeMpv {
             when (resizeMode) {
@@ -1788,6 +1831,10 @@ private class NuvioLibmpvView(
     ): PlayerEngineController =
         object : PlayerEngineController {
             override val playbackEngine = AndroidPlaybackEngine.Libmpv
+
+            override val supportsVideoBrightness = true
+
+            override fun applyVideoBrightness(value: Int) = this@NuvioLibmpvView.applyVideoBrightness(value)
 
             override fun play() = setPaused(false)
 

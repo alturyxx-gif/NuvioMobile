@@ -31,6 +31,10 @@ interface PlayerEngineController {
     ) {}
     fun setSubtitleDelayMs(delayMs: Int) {}
     fun configureIosVideoOutput(settings: PlayerSettingsUiState) {}
+    /** True when this engine can brighten/darken the decoded video itself (not the screen). */
+    val supportsVideoBrightness: Boolean get() = false
+    /** [value] is -50..50; 0 is neutral. */
+    fun applyVideoBrightness(value: Int) {}
     fun updateNowPlayingMetadata(info: PlayerNowPlayingInfo) {}
     fun clearNowPlayingInfo() {}
     suspend fun getMediaInfo(): PlayerMediaInfo = PlayerMediaInfo()

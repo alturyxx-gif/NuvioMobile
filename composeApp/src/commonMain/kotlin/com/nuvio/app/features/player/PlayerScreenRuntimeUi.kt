@@ -394,7 +394,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
                 refreshTracks()
                 showAudioModal = true
             },
-            onVideoSettingsClick = if (isIos) {
+            onVideoSettingsClick = if (isIos || playerController?.supportsVideoBrightness == true) {
                 {
                     showVideoSettingsModal = true
                     controlsVisible = true
@@ -680,7 +680,9 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         showVideoSettingsModal = showVideoSettingsModal,
         playerSettings = playerSettingsUiState,
         onVideoSettingsChanged = {
-            playerController?.configureIosVideoOutput(PlayerSettingsRepository.uiState.value)
+            val latestSettings = PlayerSettingsRepository.uiState.value
+            playerController?.configureIosVideoOutput(latestSettings)
+            playerController?.applyVideoBrightness(latestSettings.iosBrightness)
         },
         onVideoSettingsModalDismissed = { showVideoSettingsModal = false },
         showSourcesPanel = showSourcesPanel,
